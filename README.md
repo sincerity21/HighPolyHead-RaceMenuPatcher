@@ -1,3 +1,7 @@
+A personal fork of EzioTheDeadPoet's revolutionary HPH Patcher.
+- 
+Currently trying to overcome / circumvent some Skyrim modding quirks, particularly with the 255 plugin limit.
+- - -
 # High Poly Head - RaceMenu Patcher
 
 This Tool patches RaceMenu relevant records to use High Poly Head records instead of their equivalent vanilla Records for character creation, making the default presets use the High Poly Head parts, normally you need to manually select the High Poly Head parts not anymore.
