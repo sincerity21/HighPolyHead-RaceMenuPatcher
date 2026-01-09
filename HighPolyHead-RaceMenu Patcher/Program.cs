@@ -54,9 +54,14 @@ namespace HighPolyHeadUpdateRaces
 
         private static Dictionary<IFormLinkGetter<IHeadPartGetter>, IFormLinkGetter<IHeadPartGetter>> BuildVanillaToHphMap(IPatcherState<ISkyrimMod, ISkyrimModGetter> state)
         {
-            var hphHeadParts = state.LoadOrder.PriorityOrder.OnlyEnabled().HeadPart().WinningOverrides()
-                .Where(h => h.EditorID != null && h.EditorID.StartsWith("00KLH_"))
-                .ToDictionary(h => h.EditorID);
+            var hphHeadParts = new Dictionary<string, IHeadPartGetter>();
+            foreach (var hphHeadPart in state.LoadOrder.PriorityOrder.OnlyEnabled().HeadPart().WinningOverrides())
+            {
+                if (hphHeadPart.EditorID != null && hphHeadPart.EditorID.StartsWith("00KLH_"))
+                {
+                    hphHeadParts[hphHeadPart.EditorID] = hphHeadPart;
+                }
+            }
 
             var vanillaToHphParts = new Dictionary<IFormLinkGetter<IHeadPartGetter>, IFormLinkGetter<IHeadPartGetter>>();
 
