@@ -348,3 +348,4 @@ healthchecksdb
 # Backup folder for Package Reference Convert tool in Visual Studio 2017
 MigrationBackup/
 HighPolyHead-RaceMenu Patcher/Program.cs.BAK
+HighPolyHead-RaceMenu Patcher/Program2.cs.BAK
