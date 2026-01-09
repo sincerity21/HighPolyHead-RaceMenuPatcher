@@ -51,10 +51,10 @@ namespace HighPolyHeadUpdateRaces
                     {
                         if (hphHeadPart.TryResolve(state.LinkCache, out var hph) && hph.EditorID != null && vanillaHeadPart.EditorID != null && hph.EditorID.EndsWith(vanillaHeadPart.EditorID))
                         {
-                            var modKey = vanillaHeadPart.FormKey.ModKey;
                             if (state.PatchMod.MasterReferences.Count() >= 253)
                             {
-                                throw new Exception($"Cannot add {modKey} as a master, as the patch has already reached the 254 master limit. Aborting to prevent a corrupt plugin.");
+                                Console.WriteLine($"Cannot add {vanillaHeadPart.FormKey.ModKey} as a master, as the patch has already reached the 254 master limit. Aborting to prevent a corrupt plugin.");
+                                continue;
                             }
                             IHeadPart gimmeHead = state.PatchMod.HeadParts.GetOrAddAsOverride(vanillaHeadPart);
                             gimmeHead.Flags &= ~HeadPart.Flag.Playable;
@@ -116,7 +116,8 @@ namespace HighPolyHeadUpdateRaces
                 {
                     if (state.PatchMod.MasterReferences.Count() >= 253)
                     {
-                        throw new Exception($"Cannot add {raceRecord.FormKey.ModKey} as a master, as the patch has already reached the 254 master limit. Aborting to prevent a corrupt plugin.");
+                        Console.WriteLine($"Cannot add {raceRecord.FormKey.ModKey} as a master, as the patch has already reached the 254 master limit. Aborting to prevent a corrupt plugin.");
+                        continue;
                     }
                     state.PatchMod.Races.Set(raceOverride);
                 }
@@ -150,7 +151,8 @@ namespace HighPolyHeadUpdateRaces
                 {
                     if (state.PatchMod.MasterReferences.Count() >= 253)
                     {
-                        throw new Exception($"Cannot add {npcPreset.FormKey.ModKey} as a master, as the patch has already reached the 254 master limit. Aborting to prevent a corrupt plugin.");
+                        Console.WriteLine($"Cannot add {npcPreset.FormKey.ModKey} as a master, as the patch has already reached the 254 master limit. Aborting to prevent a corrupt plugin.");
+                        continue;
                     }
                     state.PatchMod.Npcs.Set(npcOverride);
                 }
