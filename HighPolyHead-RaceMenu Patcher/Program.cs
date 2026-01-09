@@ -34,20 +34,58 @@ namespace HighPolyHeadUpdateRaces
             var vanillaToHphParts = BuildVanillaToHphMap(state);
 
             Console.WriteLine("Analyzing load order to determine required patches...");
-            var (racesToPatch, npcsToPatch, masters) = PrePatch(state, vanillaToHphParts);
-
-            var mastersToAdd = masters.Count;
-            var currentMasterCount = state.PatchMod.ModHeader.MasterReferences.Count;
-            if (currentMasterCount + mastersToAdd > 254)
-            {
-                throw new Exception($"Cannot add {mastersToAdd} new masters to the patch, as it would exceed the 254 master limit. Please reduce the number of plugins that need patching.");
-            }
+            var (racesToPatch, npcsToPatch) = PrePatch(state, vanillaToHphParts);
             
+            var masters = new HashSet<ModKey>();
+            var finalRacesToPatch = new List<IRaceGetter>();
+            var finalNpcsToPatch = new List<INpcGetter>();
+
+            var currentMasterCount = state.PatchMod.ModHeader.MasterReferences.Count;
+
+            foreach (var race in racesToPatch)
+            {
+                var modKey = race.FormKey.ModKey;
+                if (masters.Contains(modKey))
+                {
+                    finalRacesToPatch.Add(race);
+                }
+                else
+                {
+                    if (currentMasterCount + masters.Count + 1 > 254)
+                    {
+                        Console.WriteLine($"Master limit reached. Skipping remaining plugins. Last plugin considered: {modKey}");
+                        goto Patch;
+                    }
+                    masters.Add(modKey);
+                    finalRacesToPatch.Add(race);
+                }
+            }
+
+            foreach (var npc in npcsToPatch)
+            {
+                var modKey = npc.FormKey.ModKey;
+                if (masters.Contains(modKey))
+                {
+                    finalNpcsToPatch.Add(npc);
+                }
+                else
+                {
+                    if (currentMasterCount + masters.Count + 1 > 254)
+                    {
+                        Console.WriteLine($"Master limit reached. Skipping remaining plugins. Last plugin considered: {modKey}");
+                        goto Patch;
+                    }
+                    masters.Add(modKey);
+                    finalNpcsToPatch.Add(npc);
+                }
+            }
+
+            Patch:
             Console.WriteLine("Patching races...");
-            var (raceHeadPartsMale, raceHeadPartsFemale) = PatchRaces(state, vanillaToHphParts, racesToPatch);
+            var (raceHeadPartsMale, raceHeadPartsFemale) = PatchRaces(state, vanillaToHphParts, finalRacesToPatch.Select(r => r.ToLinkGetter()).ToHashSet());
 
             Console.WriteLine("Patching NPCs...");
-            PatchNpcs(state, vanillaToHphParts, raceHeadPartsMale, raceHeadPartsFemale, npcsToPatch);
+            PatchNpcs(state, vanillaToHphParts, raceHeadPartsMale, raceHeadPartsFemale, finalNpcsToPatch.Select(n => n.ToLinkGetter()).ToHashSet());
 
             Console.WriteLine("Patching complete!");
         }
@@ -87,13 +125,14 @@ namespace HighPolyHeadUpdateRaces
             return vanillaToHphParts;
         }
 
-        private static (HashSet<IFormLinkGetter<IRaceGetter>>, HashSet<IFormLinkGetter<INpcGetter>>, HashSet<ModKey>) PrePatch(
+        private static (List<IRaceGetter> racesToPatch, List<INpcGetter> npcsToPatch) PrePatch(
             IPatcherState<ISkyrimMod, ISkyrimModGetter> state,
             IReadOnlyDictionary<IFormLinkGetter<IHeadPartGetter>, IFormLinkGetter<IHeadPartGetter>> vanillaToHphParts)
         {
-            var racesToPatch = new HashSet<IFormLinkGetter<IRaceGetter>>();
-            var npcsToPatch = new HashSet<IFormLinkGetter<INpcGetter>>();
-            var masters = new HashSet<ModKey>();
+            var racesToPatch = new List<IRaceGetter>();
+            var npcsToPatch = new List<INpcGetter>();
+
+            var racesThatWillBePatched = new HashSet<IFormLinkGetter<IRaceGetter>>();
 
             foreach (var raceRecord in state.LoadOrder.PriorityOrder.OnlyEnabled().Race().WinningOverrides())
             {
@@ -111,8 +150,8 @@ namespace HighPolyHeadUpdateRaces
 
                 if (needsPatching)
                 {
-                    racesToPatch.Add(raceRecord.ToLinkGetter());
-                    masters.Add(raceRecord.FormKey.ModKey);
+                    racesToPatch.Add(raceRecord);
+                    racesThatWillBePatched.Add(raceRecord.ToLinkGetter());
                 }
             }
 
@@ -127,7 +166,7 @@ namespace HighPolyHeadUpdateRaces
                 }
                 else
                 {
-                    if (racesToPatch.Contains(npcRecord.Race))
+                    if (racesThatWillBePatched.Contains(npcRecord.Race))
                     {
                         needsPatching = true;
                     }
@@ -135,12 +174,11 @@ namespace HighPolyHeadUpdateRaces
                 
                 if (needsPatching)
                 {
-                    npcsToPatch.Add(npcRecord.ToLinkGetter());
-                    masters.Add(npcRecord.FormKey.ModKey);
+                    npcsToPatch.Add(npcRecord);
                 }
             }
 
-            return (racesToPatch, npcsToPatch, masters);
+            return (racesToPatch, npcsToPatch);
         }
 
         private static (Dictionary<IFormLinkGetter<IRaceGetter>, HashSet<IFormLinkGetter<IHeadPartGetter>>>, Dictionary<IFormLinkGetter<IRaceGetter>, HashSet<IFormLinkGetter<IHeadPartGetter>>>) PatchRaces(
