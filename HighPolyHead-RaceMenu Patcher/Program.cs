@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.FormKeys.SkyrimSE;
 using Mutagen.Bethesda.Synthesis;
@@ -21,6 +22,21 @@ namespace HighPolyHeadUpdateRaces
         }
         
         private static readonly ModKey ModKey = ModKey.FromNameAndExtension("High Poly Head.esm");
+
+        private static void CheckAndWarnOnMasterLimit(IPatcherState<ISkyrimMod, ISkyrimModGetter> state, IFormLinkGetter record)
+        {
+            var modKey = record.FormKey.ModKey;
+            // If the mod for the record is not already a master
+            if (state.PatchMod.MasterReferences.All(m => m.Master != modKey))
+            {
+                // And if we are already at the master limit
+                if (state.PatchMod.MasterReferences.Count >= 254)
+                {
+                    // Then adding this record as an override would add a new master, exceeding the limit.
+                    throw new Exception($"Cannot add {modKey} as a master, as the patch has already reached the 254 master limit. Aborting to prevent a corrupt plugin.");
+                }
+            }
+        }
 
         private static void RunPatch(IPatcherState<ISkyrimMod, ISkyrimModGetter> state)
         {
@@ -52,11 +68,14 @@ namespace HighPolyHeadUpdateRaces
                         {
                             vanillaToHphParts[vanillaHeadPart.ToLinkGetter()] = hphHeadPart.ToLinkGetter();
                         }
+                        CheckAndWarnOnMasterLimit(state, vanillaHeadPart.ToLinkGetter());
                         IHeadPart gimmeHead = state.PatchMod.HeadParts.GetOrAddAsOverride(vanillaHeadPart);
                         gimmeHead.Flags &= ~HeadPart.Flag.Playable;
                     }
                 }
             }
+            
+            var hphPartsSet = new HashSet<IFormLinkGetter<IHeadPartGetter>>(vanillaToHphParts.Values);
 
             foreach (var raceRecord in state.LoadOrder.PriorityOrder.OnlyEnabled().Race().WinningOverrides())
             {
@@ -93,6 +112,26 @@ namespace HighPolyHeadUpdateRaces
                 }
                 if(!hasFemaleOverride && !hasMaleOverride)
                 {
+                    bool hasHphPart = false;
+                    if (raceRecord.HeadData.Male != null) {
+                        foreach (var raceHead in raceRecord.HeadData.Male.HeadParts) {
+                            if (hphPartsSet.Contains(raceHead.Head)) {
+                                hasHphPart = true; 
+                                break;
+                            }
+                        }
+                    }
+                    if (!hasHphPart && raceRecord.HeadData.Female != null) {
+                         foreach (var raceHead in raceRecord.HeadData.Female.HeadParts) {
+                            if (hphPartsSet.Contains(raceHead.Head)) {
+                                hasHphPart = true; 
+                                break;
+                            }
+                        }
+                    }
+                    if (hasHphPart) {
+                        Console.WriteLine($"Skipping race {raceRecord.EditorID} as it appears to be already patched.");
+                    }
                     continue;
                 }
                 
@@ -127,6 +166,7 @@ namespace HighPolyHeadUpdateRaces
                 }
                 if( changed)
                 {
+                    CheckAndWarnOnMasterLimit(state, raceRecord.ToLinkGetter());
                     state.PatchMod.Races.Set(raceOverride);
                 }
 
@@ -170,17 +210,44 @@ namespace HighPolyHeadUpdateRaces
                             part.TryResolve(state.LinkCache, out var headPartGetter);
                             if (headPartGetter?.Type == null) continue;
                             if (npcPartTypes.Contains((HeadPart.TypeEnum) headPartGetter.Type)) continue;
-                            npcDeepCopy.HeadParts.Add(part);
-                            changed = true;
+                            if (vanillaToHphParts.TryGetValue(part, out var hphEquivalent))
+                            {
+                                npcDeepCopy.HeadParts.Add(hphEquivalent);
+                                changed = true;
+                            }
                         }
 
                         if (changed)
                         {
+                            CheckAndWarnOnMasterLimit(state, npcPreset.ToLinkGetter());
                             state.PatchMod.Npcs.Set(npcDeepCopy);
                         }
                     }
 
                     if (!withoutLastTwo.EndsWith("Preset")) continue;
+                    
+                    bool alreadyPatched = true;
+                    foreach(var part in npcPreset.HeadParts) {
+                        if (vanillaToHphParts.ContainsKey(part)) {
+                            alreadyPatched = false;
+                            break;
+                        }
+                    }
+                    if (alreadyPatched) {
+                        bool hasHphPart = false;
+                        foreach(var part in npcPreset.HeadParts) {
+                            if (hphPartsSet.Contains(part)) {
+                                hasHphPart = true;
+                                break;
+                            }
+                        }
+                        if (hasHphPart) {
+                            Console.WriteLine($"Skipping NPC preset {npcPreset.EditorID} as it appears to be already patched.");
+                            continue;
+                        }
+                    }
+                    
+                    CheckAndWarnOnMasterLimit(state, npcPreset.ToLinkGetter());
                     var npcOverride = state.PatchMod.Npcs.GetOrAddAsOverride(npcPreset);
                     for (var index = 0; index < npcOverride.HeadParts.Count; index++)
                     {
