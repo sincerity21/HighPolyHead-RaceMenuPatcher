@@ -35,59 +35,160 @@ namespace HighPolyHeadUpdateRaces
 
             Console.WriteLine("Analyzing load order to determine required patches...");
             var (racesToPatch, npcsToPatch) = PrePatch(state, vanillaToHphParts);
-            
-            var masters = new HashSet<ModKey>();
-            var finalRacesToPatch = new List<IRaceGetter>();
-            var finalNpcsToPatch = new List<INpcGetter>();
 
-            var currentMasterCount = state.PatchMod.ModHeader.MasterReferences.Count;
+            var masters = new HashSet<ModKey>(state.PatchMod.ModHeader.MasterReferences.Select(x => x.Master));
+            var raceHeadPartsMale = new Dictionary<IFormLinkGetter<IRaceGetter>, HashSet<IFormLinkGetter<IHeadPartGetter>>>();
+            var raceHeadPartsFemale = new Dictionary<IFormLinkGetter<IRaceGetter>, HashSet<IFormLinkGetter<IHeadPartGetter>>>();
 
+            Console.WriteLine("Patching races...");
             foreach (var race in racesToPatch)
             {
-                var modKey = race.FormKey.ModKey;
-                if (masters.Contains(modKey))
+                var newMasters = GetMastersFor(race, state.LinkCache);
+                var newMasterCount = newMasters.Count(m => !masters.Contains(m));
+
+                if (masters.Count + newMasterCount > 254)
                 {
-                    finalRacesToPatch.Add(race);
+                    Console.WriteLine($"Master limit reached. Skipping remaining plugins. Last plugin considered: {race.FormKey.ModKey}");
+                    break;
                 }
-                else
-                {
-                    if (currentMasterCount + masters.Count + 1 > 254)
-                    {
-                        Console.WriteLine($"Master limit reached. Skipping remaining plugins. Last plugin considered: {modKey}");
-                        goto Patch;
-                    }
-                    masters.Add(modKey);
-                    finalRacesToPatch.Add(race);
-                }
+                masters.UnionWith(newMasters);
+                PatchRace(race, state, vanillaToHphParts, raceHeadPartsMale, raceHeadPartsFemale);
             }
+
+            Console.WriteLine("Patching NPCs...");
+            var patchedRaces = raceHeadPartsMale.Keys.ToHashSet();
+            patchedRaces.UnionWith(raceHeadPartsFemale.Keys);
 
             foreach (var npc in npcsToPatch)
             {
-                var modKey = npc.FormKey.ModKey;
-                if (masters.Contains(modKey))
+                var newMasters = GetMastersFor(npc, state.LinkCache);
+                var newMasterCount = newMasters.Count(m => !masters.Contains(m));
+
+                if (masters.Count + newMasterCount > 254)
                 {
-                    finalNpcsToPatch.Add(npc);
+                    Console.WriteLine($"Master limit reached. Skipping remaining plugins. Last plugin considered: {npc.FormKey.ModKey}");
+                    break;
                 }
-                else
-                {
-                    if (currentMasterCount + masters.Count + 1 > 254)
-                    {
-                        Console.WriteLine($"Master limit reached. Skipping remaining plugins. Last plugin considered: {modKey}");
-                        goto Patch;
-                    }
-                    masters.Add(modKey);
-                    finalNpcsToPatch.Add(npc);
-                }
+
+                masters.UnionWith(newMasters);
+                PatchNpc(npc, state, vanillaToHphParts, raceHeadPartsMale, raceHeadPartsFemale, patchedRaces);
             }
 
-            Patch:
-            Console.WriteLine("Patching races...");
-            var (raceHeadPartsMale, raceHeadPartsFemale) = PatchRaces(state, vanillaToHphParts, finalRacesToPatch.Select(r => r.ToLinkGetter()).ToHashSet());
-
-            Console.WriteLine("Patching NPCs...");
-            PatchNpcs(state, vanillaToHphParts, raceHeadPartsMale, raceHeadPartsFemale, finalNpcsToPatch.Select(n => n.ToLinkGetter()).ToHashSet());
-
             Console.WriteLine("Patching complete!");
+        }
+        
+        private static HashSet<ModKey> GetMastersFor(IRecordGetter record, ILinkCache linkCache)
+        {
+            var masters = new HashSet<ModKey>();
+            if (record is null) return masters;
+
+            masters.Add(record.FormKey.ModKey);
+
+            foreach (var link in record.EnumerateFormLinks())
+            {
+                if (link.FormKey.IsNull) continue;
+                masters.Add(link.FormKey.ModKey);
+            }
+
+            return masters;
+        }
+
+
+        private static void PatchRace(IRaceGetter raceRecord, IPatcherState<ISkyrimMod, ISkyrimModGetter> state, IReadOnlyDictionary<IFormLinkGetter<IHeadPartGetter>, IFormLinkGetter<IHeadPartGetter>> vanillaToHphParts, Dictionary<IFormLinkGetter<IRaceGetter>, HashSet<IFormLinkGetter<IHeadPartGetter>>> raceHeadPartsMale, Dictionary<IFormLinkGetter<IRaceGetter>, HashSet<IFormLinkGetter<IHeadPartGetter>>> raceHeadPartsFemale)
+        {
+            var raceOverride = state.PatchMod.Races.GetOrAddAsOverride(raceRecord);
+            var changed = false;
+
+            if (raceOverride.HeadData != null)
+            {
+                var raceFormLinkGetter = raceOverride.ToLinkGetter();
+                if (raceOverride.HeadData.Female != null)
+                {
+                    foreach (var raceHead in raceOverride.HeadData.Female.HeadParts)
+                    {
+                        if (!vanillaToHphParts.TryGetValue(raceHead.Head, out var part)) continue;
+
+                        raceHeadPartsFemale.GetOrAdd(raceFormLinkGetter).Add(raceHead.Head);
+                        changed = true;
+                        raceHead.Head.SetTo(part);
+                    }
+                }
+                if (raceOverride.HeadData.Male != null)
+                {
+                    foreach (var raceHead in raceOverride.HeadData.Male.HeadParts)
+                    {
+                        if (!vanillaToHphParts.TryGetValue(raceHead.Head, out var part)) continue;
+
+                        raceHeadPartsMale.GetOrAdd(raceFormLinkGetter).Add(raceHead.Head);
+                        changed = true;
+                        raceHead.Head.SetTo(part);
+                    }
+                }
+            }
+        }
+
+        private static void PatchNpc(INpcGetter npcPreset, IPatcherState<ISkyrimMod, ISkyrimModGetter> state, IReadOnlyDictionary<IFormLinkGetter<IHeadPartGetter>, IFormLinkGetter<IHeadPartGetter>> vanillaToHphParts, Dictionary<IFormLinkGetter<IRaceGetter>, HashSet<IFormLinkGetter<IHeadPartGetter>>> raceHeadPartsMale, Dictionary<IFormLinkGetter<IRaceGetter>, HashSet<IFormLinkGetter<IHeadPartGetter>>> raceHeadPartsFemale, HashSet<IFormLinkGetter<IRaceGetter>> patchedRaces)
+        {
+            try
+            {
+                if (npcPreset.EditorID == null) return;
+                var eid = npcPreset.EditorID;
+
+                var withoutLastTwo = (eid.Length > 2) ? eid[..^2] : eid;
+
+                var npcOverride = state.PatchMod.Npcs.GetOrAddAsOverride(npcPreset);
+                var changed = false;
+
+                if (!withoutLastTwo.EndsWith("Preset") && !npcPreset.Race.Equals(Skyrim.Race.FoxRace))
+                {
+                    var npcPartTypes = new HashSet<HeadPart.TypeEnum>();
+
+                    foreach (var part in npcOverride.HeadParts)
+                    {
+                        if (!part.TryResolve(state.LinkCache, out var headPartGetter)) continue;
+                        if (headPartGetter.Type != null) npcPartTypes.Add((HeadPart.TypeEnum)headPartGetter.Type);
+                    }
+
+                    var raceHeadParts = npcOverride.Configuration.Flags.HasFlag(NpcConfiguration.Flag.Female)
+                        ? raceHeadPartsFemale
+                        : raceHeadPartsMale;
+
+                    if (raceHeadParts.TryGetValue(npcOverride.Race, out var currentRaceHeadParts) || patchedRaces.Contains(npcOverride.Race))
+                    {
+                        var partsToAdd = currentRaceHeadParts ?? (npcOverride.Configuration.Flags.HasFlag(NpcConfiguration.Flag.Female) ? raceHeadPartsFemale.Values.SelectMany(x => x) : raceHeadPartsMale.Values.SelectMany(x => x)).ToHashSet();
+                        
+                        foreach (var part in partsToAdd)
+                        {
+                            part.TryResolve(state.LinkCache, out var headPartGetter);
+                            if (headPartGetter?.Type == null) continue;
+                            if (npcPartTypes.Contains((HeadPart.TypeEnum)headPartGetter.Type)) continue;
+                            npcOverride.HeadParts.Add(part);
+                            changed = true;
+                        }
+                    }
+                }
+
+                if (withoutLastTwo.EndsWith("Preset"))
+                {
+                    for (var index = 0; index < npcOverride.HeadParts.Count; index++)
+                    {
+                        if (!vanillaToHphParts.TryGetValue(npcOverride.HeadParts[index], out var replacementHead))
+                        {
+                            continue;
+                        }
+
+                        npcOverride.HeadParts[index] = replacementHead;
+                        changed = true;
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine($"Error: {e.Message}");
+                Console.WriteLine($"Error NPC: {npcPreset}");
+                Console.WriteLine($"Error NPC EditorID: {npcPreset.EditorID}");
+                Console.WriteLine($"Stack trace: {e.StackTrace}");
+            }
         }
 
         private static Dictionary<IFormLinkGetter<IHeadPartGetter>, IFormLinkGetter<IHeadPartGetter>> BuildVanillaToHphMap(IPatcherState<ISkyrimMod, ISkyrimModGetter> state)
@@ -111,7 +212,7 @@ namespace HighPolyHeadUpdateRaces
                 if (hphKey == null) continue;
 
                 if (vanillaToHphParts.ContainsKey(vanillaHeadPart.ToLinkGetter())) continue;
-                
+
                 vanillaToHphParts[vanillaHeadPart.ToLinkGetter()] = hphHeadParts[hphKey].ToLinkGetter();
 
                 // If the vanilla head part is already not playable, we assume it's already been patched.
@@ -171,7 +272,7 @@ namespace HighPolyHeadUpdateRaces
                         needsPatching = true;
                     }
                 }
-                
+
                 if (needsPatching)
                 {
                     npcsToPatch.Add(npcRecord);
@@ -179,122 +280,6 @@ namespace HighPolyHeadUpdateRaces
             }
 
             return (racesToPatch, npcsToPatch);
-        }
-
-        private static (Dictionary<IFormLinkGetter<IRaceGetter>, HashSet<IFormLinkGetter<IHeadPartGetter>>>, Dictionary<IFormLinkGetter<IRaceGetter>, HashSet<IFormLinkGetter<IHeadPartGetter>>>) PatchRaces(
-            IPatcherState<ISkyrimMod, ISkyrimModGetter> state,
-            IReadOnlyDictionary<IFormLinkGetter<IHeadPartGetter>, IFormLinkGetter<IHeadPartGetter>> vanillaToHphParts,
-            HashSet<IFormLinkGetter<IRaceGetter>> racesToPatch)
-        {
-            var raceHeadPartsMale = new Dictionary<IFormLinkGetter<IRaceGetter>, HashSet<IFormLinkGetter<IHeadPartGetter>>>();
-            var raceHeadPartsFemale = new Dictionary<IFormLinkGetter<IRaceGetter>, HashSet<IFormLinkGetter<IHeadPartGetter>>>();
-
-            foreach (var raceRecord in state.LoadOrder.PriorityOrder.OnlyEnabled().Race().WinningOverrides().Where(r => racesToPatch.Contains(r.ToLinkGetter())))
-            {
-                var raceOverride = state.PatchMod.Races.GetOrAddAsOverride(raceRecord);
-                var changed = false;
-
-                if (raceOverride.HeadData != null)
-                {
-                    var raceFormLinkGetter = raceOverride.ToLinkGetter();
-                    if (raceOverride.HeadData.Female != null)
-                    {
-                        foreach (var raceHead in raceOverride.HeadData.Female.HeadParts)
-                        {
-                            if (!vanillaToHphParts.TryGetValue(raceHead.Head, out var part)) continue;
-
-                            raceHeadPartsFemale.GetOrAdd(raceFormLinkGetter).Add(raceHead.Head);
-                            changed = true;
-                            raceHead.Head.SetTo(part);
-                        }
-                    }
-                    if (raceOverride.HeadData.Male != null)
-                    {
-                        foreach (var raceHead in raceOverride.HeadData.Male.HeadParts)
-                        {
-                            if (!vanillaToHphParts.TryGetValue(raceHead.Head, out var part)) continue;
-
-                            raceHeadPartsMale.GetOrAdd(raceFormLinkGetter).Add(raceHead.Head);
-                            changed = true;
-                            raceHead.Head.SetTo(part);
-                        }
-                    }
-                }
-            }
-
-            return (raceHeadPartsMale, raceHeadPartsFemale);
-        }
-
-        private static void PatchNpcs(
-            IPatcherState<ISkyrimMod, ISkyrimModGetter> state,
-            IReadOnlyDictionary<IFormLinkGetter<IHeadPartGetter>, IFormLinkGetter<IHeadPartGetter>> vanillaToHphParts,
-            Dictionary<IFormLinkGetter<IRaceGetter>, HashSet<IFormLinkGetter<IHeadPartGetter>>> raceHeadPartsMale,
-            Dictionary<IFormLinkGetter<IRaceGetter>, HashSet<IFormLinkGetter<IHeadPartGetter>>> raceHeadPartsFemale,
-            HashSet<IFormLinkGetter<INpcGetter>> npcsToPatch)
-        {
-            foreach (var npcPreset in state.LoadOrder.PriorityOrder.OnlyEnabled().Npc().WinningOverrides().Where(n => npcsToPatch.Contains(n.ToLinkGetter())))
-            {
-                try
-                {
-                    if (npcPreset.EditorID == null) continue;
-                    var eid = npcPreset.EditorID;
-
-                    var withoutLastTwo = (eid.Length > 2) ? eid[..^2] : eid;
-
-                    var npcOverride = state.PatchMod.Npcs.GetOrAddAsOverride(npcPreset);
-                    var changed = false;
-
-                    if (!withoutLastTwo.EndsWith("Preset") && !npcPreset.Race.Equals(Skyrim.Race.FoxRace))
-                    {
-                        var npcPartTypes = new HashSet<HeadPart.TypeEnum>();
-
-                        foreach (var part in npcOverride.HeadParts)
-                        {
-                            if (!part.TryResolve(state.LinkCache, out var headPartGetter)) continue;
-                            if (headPartGetter.Type != null) npcPartTypes.Add((HeadPart.TypeEnum)headPartGetter.Type);
-                        }
-
-                        var raceHeadParts = npcOverride.Configuration.Flags.HasFlag(NpcConfiguration.Flag.Female)
-                            ? raceHeadPartsFemale
-                            : raceHeadPartsMale;
-
-                        if (!raceHeadParts.TryGetValue(npcOverride.Race, out var currentRaceHeadParts))
-                        {
-                            continue;
-                        }
-
-                        foreach (var part in currentRaceHeadParts)
-                        {
-                            part.TryResolve(state.LinkCache, out var headPartGetter);
-                            if (headPartGetter?.Type == null) continue;
-                            if (npcPartTypes.Contains((HeadPart.TypeEnum)headPartGetter.Type)) continue;
-                            npcOverride.HeadParts.Add(part);
-                            changed = true;
-                        }
-                    }
-
-                    if (withoutLastTwo.EndsWith("Preset"))
-                    {
-                        for (var index = 0; index < npcOverride.HeadParts.Count; index++)
-                        {
-                            if (!vanillaToHphParts.TryGetValue(npcOverride.HeadParts[index], out var replacementHead))
-                            {
-                                continue;
-                            }
-
-                            npcOverride.HeadParts[index] = replacementHead;
-                            changed = true;
-                        }
-                    }
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine($"Error: {e.Message}");
-                    Console.WriteLine($"Error NPC: {npcPreset}");
-                    Console.WriteLine($"Error NPC EditorID: {npcPreset.EditorID}");
-                    Console.WriteLine($"Stack trace: {e.StackTrace}");
-                }
-            }
         }
     }
 }
