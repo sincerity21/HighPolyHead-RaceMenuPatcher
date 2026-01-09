@@ -23,20 +23,7 @@ namespace HighPolyHeadUpdateRaces
         
         private static readonly ModKey ModKey = ModKey.FromNameAndExtension("High Poly Head.esm");
 
-        private static void CheckAndWarnOnMasterLimit(IPatcherState<ISkyrimMod, ISkyrimModGetter> state, IFormLinkGetter record)
-        {
-            var modKey = record.FormKey.ModKey;
-            // If the mod for the record is not already a master
-            if (state.PatchMod.MasterReferences.All(m => m.Master != modKey))
-            {
-                // And if we are already at the master limit
-                if (state.PatchMod.MasterReferences.Count >= 254)
-                {
-                    // Then adding this record as an override would add a new master, exceeding the limit.
-                    throw new Exception($"Cannot add {modKey} as a master, as the patch has already reached the 254 master limit. Aborting to prevent a corrupt plugin.");
-                }
-            }
-        }
+
 
         private static void RunPatch(IPatcherState<ISkyrimMod, ISkyrimModGetter> state)
         {
@@ -46,6 +33,9 @@ namespace HighPolyHeadUpdateRaces
             }
             
             Console.WriteLine("Running Test!");
+
+            var masters = new HashSet<ModKey>();
+            masters.Add(ModKey.FromNameAndExtension("High Poly Head.esm"));
             
             // Dictionary containing correlation between vanilla headparts to the HPH equivalent
             var vanillaToHphParts = new Dictionary<IFormLinkGetter<IHeadPartGetter>, IFormLinkGetter<IHeadPartGetter>>();
@@ -68,7 +58,11 @@ namespace HighPolyHeadUpdateRaces
                         {
                             vanillaToHphParts[vanillaHeadPart.ToLinkGetter()] = hphHeadPart.ToLinkGetter();
                         }
-                        CheckAndWarnOnMasterLimit(state, vanillaHeadPart.ToLinkGetter());
+                        var modKey = vanillaHeadPart.FormKey.ModKey;
+                        if (masters.Contains(modKey)) continue;
+                        if (masters.Count >= 254)
+                            throw new Exception($"Cannot add {modKey} as a master, as the patch has already reached the 254 master limit. Aborting to prevent a corrupt plugin.");
+                        masters.Add(modKey);
                         IHeadPart gimmeHead = state.PatchMod.HeadParts.GetOrAddAsOverride(vanillaHeadPart);
                         gimmeHead.Flags &= ~HeadPart.Flag.Playable;
                     }
@@ -166,7 +160,13 @@ namespace HighPolyHeadUpdateRaces
                 }
                 if( changed)
                 {
-                    CheckAndWarnOnMasterLimit(state, raceRecord.ToLinkGetter());
+                    var modKey = raceRecord.FormKey.ModKey;
+                    if (!masters.Contains(modKey))
+                    {
+                        if (masters.Count >= 254)
+                            throw new Exception($"Cannot add {modKey} as a master, as the patch has already reached the 254 master limit. Aborting to prevent a corrupt plugin.");
+                        masters.Add(modKey);
+                    }
                     state.PatchMod.Races.Set(raceOverride);
                 }
 
@@ -219,7 +219,13 @@ namespace HighPolyHeadUpdateRaces
 
                         if (changed)
                         {
-                            CheckAndWarnOnMasterLimit(state, npcPreset.ToLinkGetter());
+                            var modKey = npcPreset.FormKey.ModKey;
+                            if (!masters.Contains(modKey))
+                            {
+                                if (masters.Count >= 254)
+                                    throw new Exception($"Cannot add {modKey} as a master, as the patch has already reached the 254 master limit. Aborting to prevent a corrupt plugin.");
+                                masters.Add(modKey);
+                            }
                             state.PatchMod.Npcs.Set(npcDeepCopy);
                         }
                     }
@@ -247,7 +253,6 @@ namespace HighPolyHeadUpdateRaces
                         }
                     }
                     
-                    CheckAndWarnOnMasterLimit(state, npcPreset.ToLinkGetter());
                     var npcOverride = state.PatchMod.Npcs.GetOrAddAsOverride(npcPreset);
                     for (var index = 0; index < npcOverride.HeadParts.Count; index++)
                     {
