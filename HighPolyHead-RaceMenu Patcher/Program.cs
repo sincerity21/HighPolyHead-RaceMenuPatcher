@@ -48,7 +48,7 @@ namespace HighPolyHeadUpdateRaces
                 var newMasters = GetMastersFor(race, state.LinkCache);
                 var newMasterCount = newMasters.Count(m => !masters.Contains(m));
 
-                if (masters.Count + newMasterCount > 254)
+                if (masters.Count + newMasterCount > 252)
                 {
                     Console.WriteLine($"Master limit reached. Skipping remaining plugins. Last plugin considered: {race.FormKey.ModKey}");
                     break;
@@ -66,7 +66,7 @@ namespace HighPolyHeadUpdateRaces
                 var newMasters = GetMastersFor(npc, state.LinkCache);
                 var newMasterCount = newMasters.Count(m => !masters.Contains(m));
 
-                if (masters.Count + newMasterCount > 254)
+                if (masters.Count + newMasterCount > 252)
                 {
                     Console.WriteLine($"Master limit reached. Skipping remaining plugins. Last plugin considered: {npc.FormKey.ModKey}");
                     break;
