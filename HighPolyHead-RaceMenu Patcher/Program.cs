@@ -64,69 +64,10 @@ namespace HighPolyHeadUpdateRaces
                 }
             }
             
-            foreach (var raceRecord in state.LoadOrder.PriorityOrder.OnlyEnabled().Race().WinningOverrides())
-            {
-                if (raceRecord.EditorID == null)
-                {
-                    continue;
-                }
-                if (raceRecord.HeadData == null)
-                {
-                    continue;
-                }
-                var raceOverride = raceRecord.DeepCopy();
-                var changed = false;
 
-                if (raceOverride.HeadData != null )
-                {
-                    if( raceOverride.HeadData.Female != null)
-                    {
-                        foreach (var raceHead in raceOverride.HeadData.Female.HeadParts)
-                        {
-                            if (!raceHead.Head.TryResolve(state.LinkCache, out var head2)) continue;
-                            foreach (var hphHeadPart in hphParts)
-                            {
-                                if (hphHeadPart.TryResolve(state.LinkCache, out var hph) && hph.EditorID != null && head2.EditorID != null && hph.EditorID.EndsWith(head2.EditorID))
-                                {
-                                    raceHead.Head.SetTo(hphHeadPart);
-                                    changed = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    if (raceOverride.HeadData.Male != null)
-                    {
-                        foreach (var raceHead in raceOverride.HeadData.Male.HeadParts)
-                        {
-                            if (!raceHead.Head.TryResolve(state.LinkCache, out var head2)) continue;
-                            foreach (var hphHeadPart in hphParts)
-                            {
-                                if (hphHeadPart.TryResolve(state.LinkCache, out var hph) && hph.EditorID != null && head2.EditorID != null && hph.EditorID.EndsWith(head2.EditorID))
-                                {
-                                    raceHead.Head.SetTo(hphHeadPart);
-                                    changed = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-                if( changed)
-                {
-                    if (state.PatchMod.MasterReferences.Count() >= 253)
-                    {
-                        Console.WriteLine($"Cannot add {raceRecord.FormKey.ModKey} as a master, as the patch has already reached the 254 master limit. Aborting to prevent a corrupt plugin.");
-                        continue;
-                    }
-                    state.PatchMod.Races.Set(raceOverride);
-                }
-            }
 
             foreach(var npcPreset in state.LoadOrder.PriorityOrder.OnlyEnabled().Npc().WinningOverrides())
             {
-                if (npcPreset.EditorID == null || !npcPreset.EditorID.EndsWith("Preset")) continue;
-                
                 var npcOverride = npcPreset.DeepCopy();
                 var changed = false;
 
