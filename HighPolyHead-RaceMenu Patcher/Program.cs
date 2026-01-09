@@ -68,7 +68,7 @@ namespace HighPolyHeadUpdateRaces
                     {
                         if (vanillaToHphParts.TryGetValue(raceHead.Head, out var part))
                         {
-                            raceHeadPartsFemale.GetOrAdd(raceFormLinkGetter).Add(raceHead.Head.FormKey);
+                            raceHeadPartsFemale.GetOrAdd(raceFormLinkGetter).Add(raceHead.Head);
                             raceHead.Head.SetTo(part);
                         }
                     }
@@ -79,7 +79,7 @@ namespace HighPolyHeadUpdateRaces
                     {
                         if (vanillaToHphParts.TryGetValue(raceHead.Head, out var part))
                         {
-                            raceHeadPartsMale.GetOrAdd(raceFormLinkGetter).Add(raceHead.Head.FormKey);
+                            raceHeadPartsMale.GetOrAdd(raceFormLinkGetter).Add(raceHead.Head);
                             raceHead.Head.SetTo(part);
                         }
                     }
