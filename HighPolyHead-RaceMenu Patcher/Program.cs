@@ -79,7 +79,7 @@ namespace HighPolyHeadUpdateRaces
             Console.WriteLine("Patching complete!");
         }
         
-        private static HashSet<ModKey> GetMastersFor(IRecordGetter record, ILinkCache linkCache)
+        private static HashSet<ModKey> GetMastersFor(Mutagen.Bethesda.Plugins.Records.IRecordGetter record, Mutagen.Bethesda.Plugins.Cache.ILinkCache linkCache)
         {
             var masters = new HashSet<ModKey>();
             if (record is null) return masters;
