@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.FormKeys.SkyrimSE;
 using Mutagen.Bethesda.Synthesis;
@@ -23,8 +22,6 @@ namespace HighPolyHeadUpdateRaces
         
         private static readonly ModKey ModKey = ModKey.FromNameAndExtension("High Poly Head.esm");
 
-
-
         private static void RunPatch(IPatcherState<ISkyrimMod, ISkyrimModGetter> state)
         {
             if (!state.LoadOrder.ContainsKey(ModKey))
@@ -33,70 +30,176 @@ namespace HighPolyHeadUpdateRaces
             }
             
             Console.WriteLine("Running Test!");
-
-            var hphParts = new HashSet<IFormLinkGetter<IHeadPartGetter>>();
+            
+            // Dictionary containing correlation between vanilla headparts to the HPH equivalent
+            var vanillaToHphParts = new Dictionary<IFormLinkGetter<IHeadPartGetter>, IFormLinkGetter<IHeadPartGetter>>();
+            // Dictionary of the Race record headparts NPCs inherit that need replacing in the presets
+            var raceHeadPartsMale = new Dictionary<IFormLinkGetter<IRaceGetter>, HashSet<IFormLinkGetter<IHeadPartGetter>>>();
+            var raceHeadPartsFemale = new Dictionary<IFormLinkGetter<IRaceGetter>, HashSet<IFormLinkGetter<IHeadPartGetter>>>();
+            
+            // List of Brow headparts
+            
             foreach (var hphHeadPart in state.LoadOrder.PriorityOrder.OnlyEnabled().HeadPart().WinningOverrides())
             {
-                if (hphHeadPart.EditorID != null && hphHeadPart.EditorID.StartsWith("00KLH_"))
+                if (hphHeadPart.EditorID == null || !hphHeadPart.EditorID.StartsWith("00KLH_")) continue;
+                // for each HPH record, loop through the vanilla ones again - seems a bit inefficient? compare two lists with LINQ instead?
+                foreach (var vanillaHeadPart in state.LoadOrder.PriorityOrder.HeadPart().WinningOverrides())
                 {
-                    hphParts.Add(hphHeadPart.ToLinkGetter());
-                }
-            }
-
-            foreach (var vanillaHeadPart in state.LoadOrder.PriorityOrder.HeadPart().WinningOverrides())
-            {
-                if (vanillaHeadPart.EditorID != null && !vanillaHeadPart.EditorID.StartsWith("00KLH_"))
-                {
-                    foreach (var hphHeadPart in hphParts)
+                    if (vanillaHeadPart.EditorID != null && hphHeadPart.EditorID.EndsWith(vanillaHeadPart.EditorID) 
+                                                         && !vanillaHeadPart.EditorID.StartsWith("00KLH_") )
                     {
-                        if (hphHeadPart.TryResolve(state.LinkCache, out var hph) && hph.EditorID != null && vanillaHeadPart.EditorID != null && hph.EditorID.EndsWith(vanillaHeadPart.EditorID))
+                        if (!vanillaToHphParts.ContainsKey(vanillaHeadPart.ToLinkGetter()))
                         {
-                            if (state.PatchMod.MasterReferences.Count() >= 253)
-                            {
-                                Console.WriteLine($"Cannot add {vanillaHeadPart.FormKey.ModKey} as a master, as the patch has already reached the 254 master limit. Aborting to prevent a corrupt plugin.");
-                                continue;
-                            }
-                            IHeadPart gimmeHead = state.PatchMod.HeadParts.GetOrAddAsOverride(vanillaHeadPart);
-                            gimmeHead.Flags &= ~HeadPart.Flag.Playable;
-                            break;
+                            vanillaToHphParts[vanillaHeadPart.ToLinkGetter()] = hphHeadPart.ToLinkGetter();
                         }
+                        IHeadPart gimmeHead = state.PatchMod.HeadParts.GetOrAddAsOverride(vanillaHeadPart);
+                        gimmeHead.Flags &= ~HeadPart.Flag.Playable;
                     }
                 }
             }
-            
 
-
-            foreach(var npcPreset in state.LoadOrder.PriorityOrder.OnlyEnabled().Npc().WinningOverrides())
+            foreach (var raceRecord in state.LoadOrder.PriorityOrder.OnlyEnabled().Race().WinningOverrides())
             {
-                var npcOverride = npcPreset.DeepCopy();
+                if (raceRecord.EditorID == null)
+                {
+                    continue;
+                }
+                if (raceRecord.HeadData == null)
+                {
+                    continue;
+                }
+                var hasMaleOverride = false;
+                var hasFemaleOverride = false;
+                if (raceRecord.HeadData.Male != null)
+                {
+                    // male first
+                    foreach (var raceHead in raceRecord.HeadData.Male.HeadParts)
+                    {
+                        if (!raceHead.Head.TryResolve(state.LinkCache, out var head2)) continue;
+                        if (!vanillaToHphParts.ContainsKey(head2.ToLinkGetter())) continue;
+                        hasMaleOverride = true;
+                        break;
+                    }
+                }
+                if (raceRecord.HeadData.Female != null)
+                {
+                    foreach (var raceHead in raceRecord.HeadData.Female.HeadParts)
+                    {
+                        if (!raceHead.Head.TryResolve(state.LinkCache, out var head2)) continue;
+                        if (!vanillaToHphParts.ContainsKey(head2.ToLinkGetter())) continue;
+                        hasFemaleOverride = true;
+                        break;
+                    }
+                }
+                if(!hasFemaleOverride && !hasMaleOverride)
+                {
+                    continue;
+                }
+                
+                var raceOverride = raceRecord.DeepCopy();
                 var changed = false;
 
-                for (var i = 0; i < npcOverride.HeadParts.Count; i++)
+                if (raceOverride.HeadData != null )
                 {
-                    var part = npcOverride.HeadParts[i];
-                    if (part.TryResolve(state.LinkCache, out var headPart))
+                    var raceFormLinkGetter = raceOverride.ToLinkGetter();
+                    if( raceOverride.HeadData.Female != null)
                     {
-                        foreach (var hphHeadPart in hphParts)
+                        foreach (var raceHead in raceOverride.HeadData.Female.HeadParts)
                         {
-                            if (hphHeadPart.TryResolve(state.LinkCache, out var hph) && hph.EditorID != null && headPart.EditorID != null && hph.EditorID.EndsWith(headPart.EditorID))
-                            {
-                                npcOverride.HeadParts[i] = hphHeadPart;
-                                changed = true;
-                                break;
-                            }
+                            if (!raceHead.Head.TryResolve(state.LinkCache, out var head2)) continue;
+                            if (!vanillaToHphParts.TryGetValue(head2.ToLinkGetter(), out var part)) continue;
+                            raceHeadPartsFemale.GetOrAdd(raceFormLinkGetter).Add(head2.ToLinkGetter());
+                            changed = true;
+                            raceHead.Head.SetTo(part);
+                        }
+                    }
+                    if (raceOverride.HeadData.Male != null)
+                    {
+                        foreach (var raceHead in raceOverride.HeadData.Male.HeadParts)
+                        {
+                            if (!raceHead.Head.TryResolve(state.LinkCache, out var head2)) continue;
+                            if (!vanillaToHphParts.TryGetValue(head2.ToLinkGetter(), out var part)) continue;
+                            raceHeadPartsMale.GetOrAdd(raceFormLinkGetter).Add(head2.ToLinkGetter());
+                            changed = true;
+                            raceHead.Head.SetTo(part);
                         }
                     }
                 }
-
-                if (changed)
+                if( changed)
                 {
-                    if (state.PatchMod.MasterReferences.Count() >= 253)
-                    {
-                        Console.WriteLine($"Cannot add {npcPreset.FormKey.ModKey} as a master, as the patch has already reached the 254 master limit. Aborting to prevent a corrupt plugin.");
-                        continue;
-                    }
-                    state.PatchMod.Npcs.Set(npcOverride);
+                    state.PatchMod.Races.Set(raceOverride);
                 }
+
+            }
+            // Now NPC records for preset defaults
+            // by now you can tell ive given up on efficiency and just wanted to get the damn thing working
+            foreach(var npcPreset in state.LoadOrder.PriorityOrder.OnlyEnabled().Npc().WinningOverrides())
+            {
+                try
+                {
+                    if (npcPreset.EditorID == null) continue;
+                    var eid = npcPreset.EditorID;
+
+                    var withoutLastTwo = (eid.Length > 2) ? eid[..^2] : eid;
+
+                    if (!withoutLastTwo.EndsWith("Preset") && !npcPreset.Race.Equals(Skyrim.Race.FoxRace))
+                    {
+
+                        var changed = false;
+                        var npcPartTypes = new HashSet<HeadPart.TypeEnum>();
+
+                        var npcDeepCopy = npcPreset.DeepCopy();
+
+                        foreach (var part in npcDeepCopy.HeadParts)
+                        {
+                            if (!part.TryResolve(state.LinkCache, out var headPartGetter)) continue;
+                            if (headPartGetter.Type != null) npcPartTypes.Add((HeadPart.TypeEnum) headPartGetter.Type);
+                        }
+
+                        var raceHeadParts = npcDeepCopy.Configuration.Flags.HasFlag(NpcConfiguration.Flag.Female)
+                            ? raceHeadPartsFemale
+                            : raceHeadPartsMale;
+
+                        if (!raceHeadParts.TryGetValue(npcDeepCopy.Race, out var currentRaceHeadParts))
+                        {
+                            continue;
+                        }
+
+                        foreach (var part in currentRaceHeadParts)
+                        {
+                            part.TryResolve(state.LinkCache, out var headPartGetter);
+                            if (headPartGetter?.Type == null) continue;
+                            if (npcPartTypes.Contains((HeadPart.TypeEnum) headPartGetter.Type)) continue;
+                            npcDeepCopy.HeadParts.Add(part);
+                            changed = true;
+                        }
+
+                        if (changed)
+                        {
+                            state.PatchMod.Npcs.Set(npcDeepCopy);
+                        }
+                    }
+
+                    if (!withoutLastTwo.EndsWith("Preset")) continue;
+                    var npcOverride = state.PatchMod.Npcs.GetOrAddAsOverride(npcPreset);
+                    for (var index = 0; index < npcOverride.HeadParts.Count; index++)
+                    {
+                        if (!vanillaToHphParts.TryGetValue(npcOverride.HeadParts[index], out var replacementHead))
+                        {
+                            continue;
+                        }
+
+                        npcOverride.HeadParts[index] = replacementHead;
+                    }
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine($"Error: {e.Message}");
+                    Console.WriteLine($"Error NPC: {npcPreset}");
+                    Console.WriteLine($"Error NPC EditorID: {npcPreset.EditorID}");
+                    Console.WriteLine($"Stack trace: {e.StackTrace}");
+                }
+                
             }
         }
     }
