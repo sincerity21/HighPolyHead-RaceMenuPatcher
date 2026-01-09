@@ -37,7 +37,7 @@ namespace HighPolyHeadUpdateRaces
             var (racesToPatch, npcsToPatch, masters) = PrePatch(state, vanillaToHphParts);
 
             var mastersToAdd = masters.Count;
-            var currentMasterCount = state.PatchMod.MasterFiles.Count;
+            var currentMasterCount = state.PatchMod.ModHeader.MasterReferences.Count;
             if (currentMasterCount + mastersToAdd > 254)
             {
                 throw new Exception($"Cannot add {mastersToAdd} new masters to the patch, as it would exceed the 254 master limit. Please reduce the number of plugins that need patching.");
